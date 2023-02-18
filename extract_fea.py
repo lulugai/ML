@@ -11,7 +11,7 @@ NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of multiprocessing th
 #%%
 extractor = featureextractor.RadiomicsFeatureExtractor('exampleCT.yaml')
 features = []
-rootPath = 'F:\\DATA\\0423\\standard_data\\'
+rootPath = 'E:\\Data\\DATA\\Neural\\standard_data\\'
 data_df = pd.read_excel(rootPath + 'total_data.xlsx')
 idx = data_df.index.to_list()
 
@@ -28,6 +28,8 @@ def extra_features(i):
     result = extractor.execute(img, seg)
     return result
 
+# for i in idx[::-1]:
+#     features.append(extra_features(i))
 features = list(ThreadPool(NUM_THREADS).imap(extra_features, idx))
 
 #%%
@@ -47,5 +49,5 @@ print(samples.shape)
 #%%
 df = pd.DataFrame(data=samples, columns=feature_names,index=None)
 df = pd.concat([data_df, df], axis=1)
-df.to_excel('./features_1.xlsx',index=None)
+df.to_excel('./features_total.xlsx',index=None)
 

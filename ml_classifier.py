@@ -31,7 +31,7 @@ RANDOM_NUM = 24
 
 #%%
 # 导入特征
-df = pd.read_excel("./features_1.xlsx")
+df = pd.read_csv("./Selected_features.csv")
 features_names = list(df.columns)[3:]
 df_train, df_test = train_test_split(df, test_size=0.3, random_state=RANDOM_NUM, stratify=df['label'])
 y_train = df_train[list(df_train.columns)[2:3]].to_numpy().ravel()
@@ -39,11 +39,12 @@ X_train = df_train[list(df_train.columns)[3:]].to_numpy()
 X_test = df_test[list(df_test.columns)[3:]].to_numpy()
 y_test = df_test[list(df_test.columns)[2:3]].to_numpy().ravel()
 scaler = StandardScaler()
-#scaler = MinMaxScaler()
-#scaler = RobustScaler()
+# scaler = MinMaxScaler()
+# scaler = RobustScaler()
 X_train = scaler.fit_transform(X_train)
 X_test = scaler.fit_transform(X_test)
 print(X_train.shape, y_train.shape, X_test.shape)
+display(df_train)
 #%%
 def rmse_cv(model):
     rmse= np.sqrt(-cross_val_score(model, X_train, y_train, scoring="neg_mean_squared_error", cv = 10))#均方误差
@@ -51,7 +52,8 @@ def rmse_cv(model):
 
 #调用LassoCV函数，并进行交叉验证
 def lasso_fn(X_train, y_train, X_test, features_names, plot=False):
-    model_lasso = LassoCV(alphas = [0.1,0.01,0.001, 0.0001, 0.00001],random_state=RANDOM_NUM,cv=10, max_iter=1000).fit(X_train,y_train)
+    model_lasso = LassoCV(alphas = [1,1e-1,1e-2,1e-3,1e-4],random_state=RANDOM_NUM,
+                            cv=10, max_iter=5000, n_jobs=-1, positive=False).fit(X_train,y_train)
 
     #模型所选择的最优正则化参数alpha
     print('model_lasso.alpha_: ',model_lasso.alpha_)
@@ -69,12 +71,12 @@ def lasso_fn(X_train, y_train, X_test, features_names, plot=False):
     X_test = X_test[:,supports]
     print('after Lasso: ', X_train.shape)
     #输出看模型最终选择了几个特征向量，剔除了几个特征向量
-    coef = pd.Series(model_lasso.coef_, features_names)
-    print(coef)
+    coef = pd.Series(model_lasso.coef_, index=features_names)
+
     print("Lasso picked " + str(sum(coef != 0)) + " variables and eliminated the other " +  str(sum(coef == 0)) + " variables")
 
     #输出所选择的最优正则化参数情况下的残差平均值，因为是10折，所以看平均值
-    print(rmse_cv(model_lasso).mean())
+    # print(rmse_cv(model_lasso).mean())
 
 
     #画出特征变量的重要程度，这里面选出前3个重要，后3个不重要的举例
@@ -83,6 +85,8 @@ def lasso_fn(X_train, y_train, X_test, features_names, plot=False):
     # imp_coef = pd.concat([coef.sort_values()])
     # print(coef.sort_values())
     if plot:
+        for i in coef.index:
+            print(i, coef[i])
         plt.rcParams['figure.figsize'] = (10.0, 5.0)
         plt.rcParams['font.sans-serif']=['SimHei'] #用来正常显示中文标签
         plt.rcParams['axes.unicode_minus']=False #用来正常显示负号
@@ -114,6 +118,7 @@ def Train_model(clf, X, y, name):
     #fpr = []
     order = 0
     save_path = './models/'
+    os.makedirs(save_path, exist_ok=True)
     for train_index, test_index in cv.split(X, y):
         X_train, y_train = X[train_index], y[train_index]
         X_val, y_val = X[test_index], y[test_index]
@@ -171,7 +176,6 @@ results = None
 for clf_name in clfs:
     results = pd.concat([results, Train_model(clfs[clf_name], X_train, y_train, clf_name)])
 display(results)
-# result3.to_excel('./result.xlsx', index=False)
 
 #%%
 def test_model(X_test, y_test, clf_name, n_splits=5):
@@ -209,9 +213,68 @@ def test_model(X_test, y_test, clf_name, n_splits=5):
     return result
 
 test_results =  None
+
 for clf in clfs:
     test_results = pd.concat([test_results, test_model(X_test, y_test, clf, 5)])
 display(test_results)
+test_results.to_excel('./result.xlsx')
+print('Down!!!!!!!!!')
+
+#%%
+#混淆矩阵
+clf_names = [name for name in clfs]
+clf_name = clf_names[0]
+cons = 0
+#target_ = np.array(target, dtype = int)
+for i in range(5):
+    clf = load('./models/' + clf_name + '_' + str(i) + '.joblib')
+    y_pred = clf.predict(X_test)
+    class_names=['1','0']
+    a=confusion_matrix(y_test, y_pred)
+    cons=cons+a
+disp = ConfusionMatrixDisplay(confusion_matrix=cons // 5,display_labels=class_names)
+disp.plot(cmap = 'Blues')
+plt.show()  
+
+#%%
+# ROC-AUC 
+tprs = []
+aucs = []
+mean_fpr = np.linspace(0, 1, 100)
+fig, ax = plt.subplots()   
+plt.ylabel("True Positive Rate")
+plt.xlabel("False Positive Rate")
+clf_names = [name for name in clfs]
+clf_name = clf_names[9]
+for i in range(5):
+    clf = load('./models/' + clf_name + '_' + str(i) + '.joblib')
+    y_pred = clf.predict(X_test)
+    viz = plot_roc_curve(clf, X_test, y_test)
+    interp_tpr = np.interp(mean_fpr, viz.fpr, viz.tpr)
+    interp_tpr[0] = 0.0
+    ax.plot(mean_fpr, interp_tpr, 
+            label=f'AUC_{i+1} = {viz.roc_auc:.2f}',
+            lw=2, alpha=.8)
+    
+    tprs.append(interp_tpr)
+    aucs.append(viz.roc_auc)
+ax.plot([0, 1], [0, 1], linestyle='--', lw=2,color='r', 
+         alpha=.8)
+
+mean_tpr = np.mean(tprs, axis=0)
+mean_tpr[-1] = 1.0
+mean_auc = auc(mean_fpr, mean_tpr)
+std_auc = np.std(aucs)
+
+ax.plot(mean_fpr, mean_tpr, 
+        label=r'mean_AUC = %0.2f'% (mean_auc),
+        lw=3, alpha=.8, color = 'green')
+
+ax.set(xlim=[-0.05, 1.05], ylim=[-0.05, 1.05],
+       title=f"{clf_name} ROC Curve")
+ax.legend(loc="lower right")
+
+plt.show()
 
 #%%
 X_resam, y_resam = resample(X_train, y_train)
